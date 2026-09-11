@@ -31,17 +31,50 @@ jobs:
           git fetch upstream main
           git checkout -B pr180-work upstream/main
           python /tmp/pr180-polish.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/neo4j_agent_memory/mcp/_tools.py")
+          text = path.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  "from typing import TYPE_CHECKING, Annotated, Any, Literal, cast",
+                  "from typing import TYPE_CHECKING, Any, Literal, cast",
+              ),
+              (
+                  "limit: Annotated[int, Field(ge=1)] = 50",
+                  "limit: int = cast(int, Field(default=50, ge=1))",
+              ),
+              (
+                  "limit: Annotated[int, Field(ge=1)] = 20",
+                  "limit: int = cast(int, Field(default=20, ge=1))",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"expected one match, found {count}: {old!r}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+          PY
           git diff --check
           test "$(git diff --name-only | sort)" = $'CHANGELOG.md\nsrc/neo4j_agent_memory/integrations/pydantic_ai/memory.py\nsrc/neo4j_agent_memory/integrations/strands/tools.py\nsrc/neo4j_agent_memory/mcp/_tools.py\ntests/unit/integrations/test_strands.py\ntests/unit/nams/test_mcp_platinum.py\ntests/unit/nams/test_pydantic_ai_nams.py'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Install dependencies
-        run: uv sync --all-extras --group dev
+      - name: Install focused dependencies
+        run: >-
+          uv sync --group dev
+          --extra mcp
+          --extra nams
+          --extra pydantic-ai
+          --extra strands
 
       - name: Run focused regression tests
         run: >-
@@ -50,6 +83,9 @@ jobs:
           tests/unit/nams/test_pydantic_ai_nams.py
           tests/unit/integrations/test_strands.py
           -v
+
+      - name: Install full type-check dependencies
+        run: uv sync --all-extras --group dev
 
       - name: Run code-quality gates
         run: make check
