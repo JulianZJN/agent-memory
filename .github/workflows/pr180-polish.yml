@@ -82,7 +82,8 @@ jobs:
       - name: Build distributions
         run: make build
 
-      - name: Publish one verified feature commit
+      - name: Create validated feature commit
+        id: candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -100,6 +101,12 @@ jobs:
             tests/unit/nams/test_pydantic_ai_nams.py
           git diff --cached --check
           git commit -m "fix: align NAMS wrapper tool semantics"
-          git push \
-            --force-with-lease=refs/heads/contrib/issue-170-wrapper-semantics:20a969857693f1743a1779dd8431a5a38b62d51d \
-            origin HEAD:contrib/issue-170-wrapper-semantics
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git show --stat --oneline --summary HEAD
+
+      - name: Publish validated candidate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.sha }}"
+          git push --force origin HEAD:refs/heads/tmp/pr180-validated-output-20260911
