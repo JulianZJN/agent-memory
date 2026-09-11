@@ -24,6 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           cp .github/pr180-polish.py /tmp/pr180-polish.py
+          sed -i 's/        """NAMS feedback exposes only arguments honored by the backend."""/        # NAMS feedback exposes only arguments honored by the backend./' /tmp/pr180-polish.py
           git fetch origin contrib/issue-170-wrapper-semantics
           test "$(git rev-parse FETCH_HEAD)" = "20a969857693f1743a1779dd8431a5a38b62d51d"
           git remote add upstream https://github.com/neo4j-labs/agent-memory.git || true
