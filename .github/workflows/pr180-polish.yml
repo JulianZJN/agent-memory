@@ -76,6 +76,16 @@ jobs:
           --extra pydantic-ai
           --extra strands
 
+      - name: Format touched Python files
+        run: >-
+          uv run ruff format
+          src/neo4j_agent_memory/integrations/pydantic_ai/memory.py
+          src/neo4j_agent_memory/integrations/strands/tools.py
+          src/neo4j_agent_memory/mcp/_tools.py
+          tests/unit/integrations/test_strands.py
+          tests/unit/nams/test_mcp_platinum.py
+          tests/unit/nams/test_pydantic_ai_nams.py
+
       - name: Run focused regression tests
         run: >-
           uv run pytest
@@ -101,6 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
+          test "$(git diff --name-only | sort)" = $'CHANGELOG.md\nsrc/neo4j_agent_memory/integrations/pydantic_ai/memory.py\nsrc/neo4j_agent_memory/integrations/strands/tools.py\nsrc/neo4j_agent_memory/mcp/_tools.py\ntests/unit/integrations/test_strands.py\ntests/unit/nams/test_mcp_platinum.py\ntests/unit/nams/test_pydantic_ai_nams.py'
           git config user.name "Julian"
           git config user.email "148066842+JulianZJN@users.noreply.github.com"
           git add \
