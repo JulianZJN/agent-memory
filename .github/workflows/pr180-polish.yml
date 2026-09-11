@@ -1,0 +1,81 @@
+name: PR 180 polish
+
+on:
+  push:
+    branches:
+      - tmp/pr180-polish-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-verify-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out staging branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild on current upstream main
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/pr180-polish.py /tmp/pr180-polish.py
+          git fetch origin contrib/issue-170-wrapper-semantics
+          test "$(git rev-parse FETCH_HEAD)" = "20a969857693f1743a1779dd8431a5a38b62d51d"
+          git remote add upstream https://github.com/neo4j-labs/agent-memory.git || true
+          git fetch upstream main
+          git checkout -B pr180-work upstream/main
+          python /tmp/pr180-polish.py
+          git diff --check
+          test "$(git diff --name-only | sort)" = $'CHANGELOG.md\nsrc/neo4j_agent_memory/integrations/pydantic_ai/memory.py\nsrc/neo4j_agent_memory/integrations/strands/tools.py\nsrc/neo4j_agent_memory/mcp/_tools.py\ntests/unit/integrations/test_strands.py\ntests/unit/nams/test_mcp_platinum.py\ntests/unit/nams/test_pydantic_ai_nams.py'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      - name: Run focused regression tests
+        run: >-
+          uv run pytest
+          tests/unit/nams/test_mcp_platinum.py
+          tests/unit/nams/test_pydantic_ai_nams.py
+          tests/unit/integrations/test_strands.py
+          -v
+
+      - name: Run code-quality gates
+        run: make check
+
+      - name: Run complete unit suite
+        run: make test-unit
+
+      - name: Build distributions
+        run: make build
+
+      - name: Publish one verified feature commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "Julian"
+          git config user.email "148066842+JulianZJN@users.noreply.github.com"
+          git add \
+            CHANGELOG.md \
+            src/neo4j_agent_memory/integrations/pydantic_ai/memory.py \
+            src/neo4j_agent_memory/integrations/strands/tools.py \
+            src/neo4j_agent_memory/mcp/_tools.py \
+            tests/unit/integrations/test_strands.py \
+            tests/unit/nams/test_mcp_platinum.py \
+            tests/unit/nams/test_pydantic_ai_nams.py
+          git diff --cached --check
+          git commit -m "fix: align NAMS wrapper tool semantics"
+          git push \
+            --force-with-lease=refs/heads/contrib/issue-170-wrapper-semantics:20a969857693f1743a1779dd8431a5a38b62d51d \
+            origin HEAD:contrib/issue-170-wrapper-semantics
