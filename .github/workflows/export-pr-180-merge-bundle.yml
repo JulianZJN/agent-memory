@@ -1,0 +1,39 @@
+name: Export PR 180 merge bundle
+
+on:
+  push:
+    branches:
+      - ci/resolve-180-bundle
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build two-ref bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/neo4j-labs/agent-memory.git
+          git fetch upstream main
+          git fetch origin contrib/issue-170-wrapper-semantics
+          mkdir -p out
+          git bundle create out/agent-memory.bundle \
+            refs/remotes/origin/contrib/issue-170-wrapper-semantics \
+            refs/remotes/upstream/main
+          {
+            echo "head=$(git rev-parse refs/remotes/origin/contrib/issue-170-wrapper-semantics)"
+            echo "base=$(git rev-parse refs/remotes/upstream/main)"
+            echo "merge_base=$(git merge-base refs/remotes/origin/contrib/issue-170-wrapper-semantics refs/remotes/upstream/main)"
+          } > out/metadata.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-memory-merge-bundle
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
