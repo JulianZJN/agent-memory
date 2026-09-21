@@ -1,4 +1,4 @@
-name: Export PR 180 merge bundle
+name: Resolve PR 180 against current main
 
 on:
   push:
@@ -6,34 +6,83 @@ on:
       - ci/resolve-180-bundle
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  resolve-and-validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: contrib/issue-170-wrapper-semantics
           fetch-depth: 0
-      - name: Build two-ref bundle
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Merge the reviewed upstream head
         shell: bash
         run: |
           set -euo pipefail
+          expected_head='d81ad2d5a69ccd5661c6a8485a5980f476d8d61c'
+          upstream_head='702e407dc9920f225abaf3580480fe5984b5178f'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git config user.name 'JulianZJN'
+          git config user.email '148066842+JulianZJN@users.noreply.github.com'
           git remote add upstream https://github.com/neo4j-labs/agent-memory.git
-          git fetch upstream main
-          git fetch origin contrib/issue-170-wrapper-semantics
-          mkdir -p out
-          git bundle create out/agent-memory.bundle \
-            refs/remotes/origin/contrib/issue-170-wrapper-semantics \
-            refs/remotes/upstream/main
-          {
-            echo "head=$(git rev-parse refs/remotes/origin/contrib/issue-170-wrapper-semantics)"
-            echo "base=$(git rev-parse refs/remotes/upstream/main)"
-            echo "merge_base=$(git merge-base refs/remotes/origin/contrib/issue-170-wrapper-semantics refs/remotes/upstream/main)"
-          } > out/metadata.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: agent-memory-merge-bundle
-          path: out/
-          if-no-files-found: error
-          retention-days: 1
+          git fetch upstream "$upstream_head"
+          git branch upstream-main "$upstream_head"
+          set +e
+          git merge --no-commit --no-ff upstream-main
+          merge_status=$?
+          set -e
+          test "$merge_status" -ne 0
+          mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+          printf '%s\n' "${conflicts[@]}"
+          test "${conflicts[*]}" = 'CHANGELOG.md'
+
+      - name: Resolve the changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --theirs CHANGELOG.md
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('CHANGELOG.md')
+          text = path.read_text()
+          heading = '### Changed\n\n'
+          entry = '''### Changed
+
+          - **BREAKING: NAMS feedback wrappers no longer accept the ignored
+            `user_identifier` / `user_id` arguments.** The MCP, Pydantic AI, and Strands
+            surfaces now match the backend contract; callers should stop passing these
+            keywords. MCP entity-history and reflection limits and the Pydantic AI
+            entity-history limit are now enforced locally and must be at least 1. This
+            does not change backend or multi-tenant isolation semantics.
+          '''
+          if heading not in text:
+              raise RuntimeError('missing first Changed section')
+          path.write_text(text.replace(heading, entry + '\n', 1))
+          PY
+          git add CHANGELOG.md
+          test -z "$(git diff --name-only --diff-filter=U)"
+          ! grep -n '^<<<<<<<\|^=======\|^>>>>>>>' CHANGELOG.md
+          git diff upstream-main --check
+
+      - name: Install and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install 3.12
+          uv sync --all-extras --group dev --python 3.12
+          make check
+          uv run pytest tests/unit -q
+
+      - name: Commit and update the PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git commit -s -m 'merge: sync NAMS wrapper cleanup with current main'
+          git push origin HEAD:contrib/issue-170-wrapper-semantics
+          git push origin --delete ci/resolve-180-bundle || true
