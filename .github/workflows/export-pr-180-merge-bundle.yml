@@ -6,7 +6,7 @@ on:
       - ci/resolve-180-bundle
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   resolve-and-validate:
@@ -79,10 +79,26 @@ jobs:
           make check
           uv run pytest tests/unit -q
 
-      - name: Commit and update the PR branch
+      - name: Commit and export the validated merge
         shell: bash
         run: |
           set -euo pipefail
           git commit -s -m 'merge: sync NAMS wrapper cleanup with current main'
-          git push origin HEAD:contrib/issue-170-wrapper-semantics
-          git push origin --delete ci/resolve-180-bundle || true
+          mkdir -p out
+          git bundle create out/agent-memory-pr180-merge.bundle \
+            HEAD contrib/issue-170-wrapper-semantics upstream-main
+          git show --format=fuller --stat HEAD > out/commit.txt
+          git diff --name-status upstream-main..HEAD > out/changed-files.txt
+          {
+            echo "merge_commit=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse HEAD^{tree})"
+            echo "parent1=$(git rev-parse HEAD^1)"
+            echo "parent2=$(git rev-parse HEAD^2)"
+          } > out/metadata.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-memory-pr180-validated-merge
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
